@@ -396,7 +396,9 @@ function settle(cards, sequence, animate){
   const perCard = Math.ceil(9000/winners.length/100)*100;  // 均分後不足100進位成100
   const payout = mine.length ? perCard*mine.length*mult : 0;
   points += payout - cost;
-  if(mine.length) won=true; else rebate += 4*cost/1000;
+  const solo = winners.length===1 && mine.length===1;  // 獨得:單卡獨開且是我的;任何同開都算分盤
+  if(solo) won=true;
+  if(!mine.length) rebate += 4*cost/1000;
   result = {winBall,winners,mine,payout,cost,cards};
   roundNo++;
   log.unshift({no:roundNo,cards:cards.length,cost,winners,payout,winBall,mine:mine.length});
@@ -468,7 +470,7 @@ function render(){ renderDash(); renderCtrl(); renderBoard(); renderCards(); ren
 function renderDash(){
   const net = cashOut+rebateGot-cashIn;
   const nx = Math.min(validSel().length, Math.floor(points/(100*mult)));
-  const state = !zhaoOpen ? "尚未開招" : (won ? "已解鎖兌換" : "兌換鎖定(需先中獎)");
+  const state = !zhaoOpen ? "尚未開招" : (won ? "已解鎖兌換" : "兌換鎖定(需先獨得一次)");
   const nextTxt = zhaoOpen&&nx>0 ? ` · 下一局 ${nx} 張${mult>1?"×"+mult+"倍":""} 扣 ${fmt(nx*100*mult)} 分` : "";
   const stat = (lb,vl,cls,sb)=>`<div class="stat"><div class="lb">${lb}</div><div class="vl" ${cls?`style="color:var(--${cls})"`:""}>${vl}</div>${sb?`<div class="sb">${sb}</div>`:""}</div>`;
   $("dash").innerHTML =
@@ -566,9 +568,12 @@ function runOneZhao(){
     log.unshift({no:roundNo,cards:use,cost,winners,payout,winBall,mine:mine.length});
     if(log.length>60) log.pop();
     if(mine.length){
-      won = true; winTimes++;
-      const u = Math.floor(points/5000);     // 中獎即洗 5,000 倍數
-      if(u>0){ points -= u*5000; cash += u*1000; cashOut += u*1000; }
+      winTimes++;
+      if(winners.length===1 && mine.length===1) won = true;   // 獨得才解鎖;同開一律分盤
+      if(won){                                        // 已解鎖(含本局)即洗 5,000 倍數
+        const u = Math.floor(points/5000);
+        if(u>0){ points -= u*5000; cash += u*1000; cashOut += u*1000; }
+      }
     }else{
       rebate += 4*cost/1000;
     }
@@ -652,7 +657,7 @@ function renderBallInfo(){
   $("roundmsg").innerHTML = over ?
     `<span class="note">押 ${result.cards.length} 張 扣 ${result.cost} 分 · </span>`+
     (result.payout>0
-      ? `<span class="pos">中獎!卡 ${result.mine.map(pad2).join("、")} · +${fmt(result.payout)} 分</span>`
+      ? `<span class="pos">${result.winners.length===1?"獨得":"分盤"}!卡 ${result.mine.map(pad2).join("、")}${result.winners.length>1?`(${result.winners.length}張同開均分)`:""} · +${fmt(result.payout)} 分</span>`
       : `<span style="color:var(--dim)">本局由卡 ${result.winners.map(pad2).join("、")} 完成(第 ${result.winBall} 球)</span>`) : "";
 }
 function renderCards(){
