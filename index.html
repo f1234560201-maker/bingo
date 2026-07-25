@@ -33,6 +33,12 @@
   .tabs button{background:none;border:1px solid var(--line);border-radius:8px;color:var(--dim);
     padding:7px 14px;font-size:13px;cursor:pointer;font-family:inherit}
   .tabs button.on{color:var(--amber);border-color:var(--amber);box-shadow:0 0 10px rgba(255,216,77,.3)}
+  .links{display:flex;gap:8px;flex-wrap:wrap}
+  .links a,.links button{background:rgba(255,255,255,.03);color:var(--dim);border:1px solid var(--line);
+    border-radius:9px;padding:7px 12px;font-size:13px;cursor:pointer;font-family:inherit;text-decoration:none;
+    display:inline-flex;align-items:center;gap:5px;transition:border-color .12s,color .12s}
+  .links a:hover,.links button:hover{border-color:var(--amber);color:var(--text)}
+  .links a.set{color:var(--amber);border-color:rgba(255,216,77,.5)}
   #dash{display:flex;gap:18px;padding:12px 18px;flex-wrap:wrap;border-bottom:1px solid var(--line);background:var(--panel)}
   .stat{min-width:108px;flex:1}
   .stat .lb{font-size:11px;letter-spacing:2px;color:var(--dim)}
@@ -109,6 +115,7 @@
 <header>
   <h1>賓果下注模擬器</h1>
   <span class="src" id="libSrc"></span>
+  <div class="links" id="topLinks"></div>
   <div class="tabs">
     <button data-tab="game" class="on">模擬</button>
     <button data-tab="lib">卡庫管理</button>
@@ -157,7 +164,7 @@
       <div class="lb" id="zhaoTitle">連跑統計</div>
       <div id="zhaoSummary" class="note" style="margin-bottom:8px"></div>
       <div style="max-height:300px;overflow-y:auto">
-        <table><thead><tr><th>招</th><th>局數</th><th>兌換(元)</th><th>返水(元)</th><th>中獎次</th><th style="text-align:right">損益(元)</th></tr></thead>
+        <table><thead><tr><th>招</th><th>局數</th><th>兌換(元)</th><th>返水(元)</th><th>獨得</th><th>分盤</th><th style="text-align:right">損益(元)</th></tr></thead>
         <tbody id="zhaoBody"></tbody></table>
       </div>
     </div>
@@ -466,7 +473,7 @@ function autoTick(){
 }
 
 /* ---------- 畫面 ---------- */
-function render(){ renderDash(); renderCtrl(); renderBoard(); renderCards(); renderPicker(); renderLog(); renderBallInfo(); renderLib(); }
+function render(){ renderLinks(); renderDash(); renderCtrl(); renderBoard(); renderCards(); renderPicker(); renderLog(); renderBallInfo(); renderLib(); }
 function renderDash(){
   const net = cashOut+rebateGot-cashIn;
   const nx = Math.min(validSel().length, Math.floor(points/(100*mult)));
@@ -548,7 +555,7 @@ let zhaoLog=[], maraOn=false, maraTarget=0, maraDone=0, maraTimer=null;
 function runOneZhao(){
   cashIn += 2000; points += 12000; zhaoOpen = true; won = false;
   const sel = validSel();
-  let rounds=0, cash=0, winTimes=0;
+  let rounds=0, cash=0, winTimes=0, soloR=0, splitR=0;
   const reb0 = rebate;
   while(rounds < 2000){
     const afford = Math.floor(points/(100*mult));
@@ -569,7 +576,8 @@ function runOneZhao(){
     if(log.length>60) log.pop();
     if(mine.length){
       winTimes++;
-      if(winners.length===1 && mine.length===1) won = true;   // 獨得才解鎖;同開一律分盤
+      if(winners.length===1 && mine.length===1){ won = true; soloR++; }  // 獨得才解鎖
+      else splitR++;                                                     // 同開一律分盤
       if(won){                                        // 已解鎖(含本局)即洗 5,000 倍數
         const u = Math.floor(points/5000);
         if(u>0){ points -= u*5000; cash += u*1000; cashOut += u*1000; }
@@ -580,7 +588,7 @@ function runOneZhao(){
   }
   const rebGain = rebate - reb0;
   zhaoLog.push({ zhao: zhaoLog.length+1, rounds, cash, reb: rebGain,
-                 winTimes, profit: cash + rebGain - 2000 });
+                 winTimes, solo: soloR, split: splitR, profit: cash + rebGain - 2000 });
   zhaoOpen = false;                          // 殘分(<100)自動帶入下一招
 }
 function startMarathon(n){
@@ -631,15 +639,35 @@ function renderZhao(){
   const profits = zhaoLog.map(r=>r.profit).slice().sort((a,b)=>a-b);
   const tot = zhaoLog.reduce((s,r)=>s+r.profit,0);
   const med = profits[Math.floor(profits.length/2)];
-  const pos = zhaoLog.filter(r=>r.profit>0).length;
+  const nZ = zhaoLog.length;
+  const zWin = zhaoLog.filter(r=>r.profit>0).length;
+  const zLose = zhaoLog.filter(r=>r.profit<0).length;
+  const zEven = nZ - zWin - zLose;
   const totRounds = zhaoLog.reduce((s,r)=>s+r.rounds,0);
-  $("zhaoTitle").textContent = `連跑統計(${zhaoLog.length} 招)`;
+  const totSolo  = zhaoLog.reduce((s,r)=>s+(r.solo||0),0);
+  const totSplit = zhaoLog.reduce((s,r)=>s+(r.split||0),0);
+  const totHit = totSolo + totSplit, totMiss = totRounds - totHit;
+  const dead = zhaoLog.filter(r=>r.cash===0).length;   // 沉底招(完全洗不出)
+  /* 最長連贏/連輸(依招序) */
+  let maxW=0, maxL=0, cw=0, cl=0;
+  for(const r of zhaoLog){
+    if(r.profit>0){ cw++; cl=0; } else if(r.profit<0){ cl++; cw=0; } else { cw=0; cl=0; }
+    if(cw>maxW) maxW=cw;
+    if(cl>maxL) maxL=cl;
+  }
+  $("zhaoTitle").textContent = `連跑統計(${nZ} 招)`;
   $("zhaoSummary").innerHTML =
-    `總損益 <b class="${tot>=0?"pos":"neg"}">${tot>=0?"+":""}${fmt(Math.round(tot))} 元</b>`+
-    ` · 中位數 ${med>=0?"+":""}${Math.round(med)} 元/招 · 正報酬 ${(pos/zhaoLog.length*100).toFixed(0)}%`+
-    ` · 平均 ${(totRounds/zhaoLog.length).toFixed(0)} 局/招(返水以現值計)`;
+    `<div>總損益 <b class="${tot>=0?"pos":"neg"}">${tot>=0?"+":""}${fmt(Math.round(tot))} 元</b>`+
+    ` · 中位數 ${med>=0?"+":""}${Math.round(med)} 元/招 · 平均 ${(totRounds/nZ).toFixed(0)} 局/招(返水以現值計)</div>`+
+    `<div style="margin-top:6px">招勝負 <b class="pos">贏 ${zWin}</b> / <b class="neg">輸 ${zLose}</b>`+
+    `${zEven?` / 平 ${zEven}`:""} · 勝率 ${(zWin/nZ*100).toFixed(0)}%`+
+    ` · 最長連贏 ${maxW} 招、連輸 ${maxL} 招 · 沉底 ${dead} 招(${(dead/nZ*100).toFixed(0)}%)</div>`+
+    `<div style="margin-top:6px">局勝負 <b class="pos">中 ${fmt(totHit)}</b>(獨得 ${fmt(totSolo)}、分盤 ${fmt(totSplit)})`+
+    ` / <b class="neg">未中 ${fmt(totMiss)}</b> · 中獎率 ${(totHit/totRounds*100).toFixed(2)}%`+
+    ` · 獨得率 ${(totSolo/totRounds*100).toFixed(2)}%</div>`;
   $("zhaoBody").innerHTML = zhaoLog.slice().reverse().map(r=>
-    `<tr><td>${r.zhao}</td><td>${r.rounds}</td><td>${fmt(r.cash)}</td><td>${r.reb.toFixed(0)}</td><td>${r.winTimes}</td>
+    `<tr><td>${r.zhao}</td><td>${r.rounds}</td><td>${fmt(r.cash)}</td><td>${r.reb.toFixed(0)}</td>
+     <td class="${(r.solo||0)>0?"pos":""}">${r.solo||0}</td><td>${r.split||0}</td>
      <td style="text-align:right" class="${r.profit>=0?"pos":"neg"}">${r.profit>=0?"+":""}${Math.round(r.profit)}</td></tr>`).join("");
 }
 function drawnSet(){ return new Set(seq.slice(0,drawn)); }
@@ -963,6 +991,34 @@ function useGroup(i){
   if(!batchResult||!batchResult.groups[i]) return;
   selected = batchResult.groups[i].ids.filter(id=>libMap.has(id));
   switchTab("game"); render();
+}
+
+/* ---------- 頂欄快速連結 ---------- */
+const LINK_DEFS = [
+  {key:"ledger", label:"兌現簿",   def:"https://docs.google.com/spreadsheets/d/1BLkVkI_kUwOp8oOXHPHykQki9kc4KGKiHDiXTLWr7U0/edit?usp=drivesdk"},
+  {key:"bible",  label:"勝率寶典", def:"https://docs.google.com/spreadsheets/d/1WCRBoOIqyTTd6zqgApXdQIUW-Rqwud_WZG4nxpZvL2g/edit?usp=drivesdk"}
+];
+let topLinkUrls = {};
+try{ topLinkUrls = JSON.parse(localStorage.getItem("bingo-links-v1")||"{}") || {}; }catch(e){ topLinkUrls={}; }
+function saveLinks(){ try{ localStorage.setItem("bingo-links-v1", JSON.stringify(topLinkUrls)); }catch(e){} }
+function setLink(key, label){
+  const d0 = LINK_DEFS.find(x=>x.key===key);
+  const cur = (key in topLinkUrls) ? topLinkUrls[key] : (d0 ? d0.def : "");
+  const v = prompt(`貼上「${label}」的網址(留空可清除):`, cur);
+  if(v===null) return;
+  const url = v.trim();
+  if(!url) delete topLinkUrls[key];
+  else topLinkUrls[key] = /^https?:\/\//i.test(url) ? url : "https://" + url;
+  saveLinks(); renderLinks();
+}
+function renderLinks(){
+  $("topLinks").innerHTML = LINK_DEFS.map(d=>{
+    const u = (d.key in topLinkUrls) ? topLinkUrls[d.key] : d.def;
+    return u
+      ? `<a class="set" href="${u}" target="_blank" rel="noopener">${d.label}</a>
+         <button title="修改網址" onclick="setLink('${d.key}','${d.label}')">✎</button>`
+      : `<button onclick="setLink('${d.key}','${d.label}')">設定${d.label}連結</button>`;
+  }).join("");
 }
 
 /* ---------- 分頁 ---------- */
